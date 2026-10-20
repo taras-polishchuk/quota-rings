@@ -157,6 +157,13 @@ if [ "${1:-}" = "--verify" ]; then
   report "self-verification: can this scanner still detect a leak?"
   probe="quota_rings/_scan_selfcheck.py"
   printf 'LEAK = "sk-or-v1-%s"\n' "$(printf 'a%.0s' $(seq 48))" > "$probe"
+  # `git add` writes the blob into the object database. Remember which object
+  # that is, so the scan below can prove it is detectable AND clean it up after
+  # itself: a synthetic credential-shaped blob left loose in the DB is a false
+  # positive for every downstream gitleaks/trufflehog run that reads unreachable
+  # objects, and it is the reason this repo once shipped 57 objects for 56 of
+  # history.
+  probe_oid="$(git hash-object "$probe" 2>/dev/null || true)"
   git add -f "$probe" 2>/dev/null
   if git ls-files -z 2>/dev/null | xargs -0 -r grep -nI -E -f "$PATTERNS" 2>/dev/null \
        | grep -q "$probe"; then
@@ -167,6 +174,17 @@ if [ "${1:-}" = "--verify" ]; then
   fi
   git rm -q --cached "$probe" 2>/dev/null
   rm -f "$probe"
+  if [ -n "$probe_oid" ]; then
+    objdir="$(git rev-parse --git-path objects)"
+    objfile="$objdir/${probe_oid:0:2}/${probe_oid:2}"
+    # Only ever remove it when it is loose AND no ref can reach it. If it was
+    # already packed, `git gc --prune=now` is the tool for that, not `rm`.
+    if [ -f "$objfile" ] && ! git rev-list --objects --all 2>/dev/null | cut -d' ' -f1 \
+         | grep -qx "$probe_oid"; then
+      rm -f "$objfile"
+      echo "  the planted object was removed; the database holds history only"
+    fi
+  fi
 fi
 
 printf '\n'
