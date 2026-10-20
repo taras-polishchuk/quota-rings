@@ -53,7 +53,8 @@ class Window:
     """One quota window, e.g. "5 hour session" or "calendar month".
 
     ``used`` is *consumed* percent (0..100). Providers that report *remaining*
-    must invert before constructing this -- see ``docs/PROVIDERS.md``.
+    must invert before constructing this -- see the per-provider notes in
+    ``README.md`` and the ``quota_rings/providers`` modules themselves.
     """
 
     key: str

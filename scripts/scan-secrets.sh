@@ -93,8 +93,12 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
     # identity lives there and is reported in full by the section below --
     # scanning it here would double-report the same address under a rule meant
     # for file content.
+    # The allowlist goes in through the environment, not `-v`. awk expands
+    # escape sequences in a -v value, so the `\.` in the paths arrived as `.`
+    # and mawk warned about it on every single run.
     leaked="$(
-      awk -v allow="$SELF_ALLOW" '
+      SELF_ALLOW="$SELF_ALLOW" awk '
+        BEGIN { allow = ENVIRON["SELF_ALLOW"] }
         /^diff --git / { path = $0; sub(/.* b\//, "", path); skip = (path ~ allow) }
         /^(Author|AuthorDate|Commit|CommitDate|Date): / { next }
         !skip

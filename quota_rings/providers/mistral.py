@@ -83,7 +83,17 @@ def parse_spend_limit(payload: dict[str, Any]) -> FetchResult:
 def fetch(account: Any) -> FetchResult:
     kind = str(account.options.get("kind", "admin")).lower()
     if kind != "admin":
-        return FetchResult(extras=[UNSUPPORTED_NOTE], vendor_reset=VendorReset(supported=False, documented=False))
+        # The card renders ``vendor_reset.note`` next to "No vendor quota reset
+        # here." An empty note left the user with a bare verdict and no reason,
+        # while the same card carried the reason in extras. Say it in both.
+        return FetchResult(
+            extras=[UNSUPPORTED_NOTE],
+            vendor_reset=VendorReset(
+                supported=False, documented=False,
+                note="Mistral publishes no quota reset for any account. A "
+                     "non-admin key cannot read the Admin API that reports these "
+                     "limits, so there is nothing here to reset."),
+        )
 
     token = account.resolve_token()
     if not token:

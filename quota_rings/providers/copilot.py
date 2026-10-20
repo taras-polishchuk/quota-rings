@@ -43,8 +43,7 @@ def parse_user(payload: dict[str, Any]) -> FetchResult:
             used = 100.0 - float(pct_remaining)
             sub = None
             if entitlement and remaining is not None:
-                unit = "credit" if float(entitlement) != 1 else "credit"
-                sub = f"{remaining}/{entitlement} {unit}s" if float(entitlement) == 1 else f"{remaining}/{entitlement} credits"
+                sub = f"{remaining}/{entitlement} credit" if float(entitlement) == 1 else f"{remaining}/{entitlement} credits"
             result.windows.append(
                 make_window("month", "Month", used, reset_at=reset_ts,
                             window_seconds=MONTH_SECONDS, sub=sub)

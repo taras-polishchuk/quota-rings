@@ -9,6 +9,7 @@ The two things these tests exist to prove:
 from __future__ import annotations
 
 import json
+import socket
 import threading
 import unittest
 import urllib.error
@@ -58,6 +59,33 @@ class ServerTestCase(unittest.TestCase):
     def get(self, path):
         with urllib.request.urlopen(self.base + path, timeout=5) as response:
             return response.status, response.read().decode("utf-8")
+
+    def raw_get(self, path):
+        """Send a request line verbatim over a raw socket.
+
+        ``urllib`` normalises the path before it reaches the wire, so a test
+        written with it never actually asks the server for ``/../server.py`` --
+        it asks for ``/server.py``, which is a different question. This writes
+        the request line byte-for-byte so the server sees what an attacker
+        would send.
+        """
+        host, _, port = self.base.split("//", 1)[1].partition(":")
+        with socket.create_connection((host, int(port)), timeout=5) as sock:
+            sock.sendall(
+                f"GET {path} HTTP/1.1\r\n"
+                f"Host: {host}:{port}\r\n"
+                "Connection: close\r\n\r\n".encode()
+            )
+            chunks = []
+            while True:
+                chunk = sock.recv(65536)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+        raw = b"".join(chunks)
+        head, _, body = raw.partition(b"\r\n\r\n")
+        status = int(head.split(b" ")[1])
+        return status, body.decode("utf-8", "replace")
 
     def post(self, path, body):
         request = urllib.request.Request(
@@ -112,10 +140,44 @@ class UsageApiTests(ServerTestCase):
         self.assertEqual(ctx.exception.code, 404)
 
     def test_path_traversal_is_refused(self):
-        for attempt in ("/../server.py", "/..%2fserver.py", "/../../etc/passwd"):
-            with self.assertRaises(urllib.error.HTTPError) as ctx:
-                self.get(attempt)
-            self.assertEqual(ctx.exception.code, 404, attempt)
+        """Traversal probes sent byte-for-byte over a raw socket.
+
+        urllib normalises ``/../server.py`` to ``/server.py`` before it reaches
+        the wire, so the previous version of this test asserted 404 against a
+        request the server never received. These do not go through any client
+        library: the request line below is exactly what an attacker would type.
+        """
+        probes = (
+            "/../server.py",
+            "/../../etc/passwd",
+            "/../../../../etc/passwd",
+            "/..%2fserver.py",
+            "/%2e%2e%2fserver.py",
+            "/..;/server.py",
+            "/....//server.py",
+            "/web/../../server.py",
+            "/favicon.svg/../../server.py",
+            "/..",
+        )
+        for probe in probes:
+            status, body = self.raw_get(probe)
+            self.assertEqual(status, 404, f"{probe} -> {status} {body[:80]!r}")
+            # The refusal must not echo the file it refused to serve.
+            self.assertNotIn("QuotaRingsServer", body, probe)
+            self.assertNotIn("root:x:", body, probe)
+
+    def test_a_real_static_asset_is_still_served(self):
+        """The control: traversal is refused, ordinary files are not."""
+        status, body = self.raw_get("/favicon.svg")
+        self.assertEqual(status, 200)
+        self.assertIn("<svg", body)
+
+    def test_trailing_slash_is_not_a_second_spelling_of_the_reset_route(self):
+        """``/vendor-reset/`` must 404, not quietly become ``/vendor-reset``."""
+        status, payload = self.post("/api/accounts/or-main/vendor-reset/",
+                                    {"confirm": "redeem-banked-reset"})
+        self.assertEqual(status, 404)
+        self.assertEqual(payload.get("error"), "not found")
 
 
 class SecretLeakTests(ServerTestCase):

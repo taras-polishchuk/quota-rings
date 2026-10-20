@@ -111,8 +111,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         path = self.path.partition("?")[0]
         parts = [p for p in path.split("/") if p]
-        # /api/accounts/<id>/vendor-reset
-        if len(parts) == 4 and parts[0] == "api" and parts[1] == "accounts" and parts[3] == "vendor-reset":
+        # /api/accounts/<id>/vendor-reset -- and only that exact path. Filtering
+        # empty segments made a trailing slash a second spelling of the same
+        # route; the gates were still applied, but one route, one spelling.
+        if len(parts) == 4 and path == "/" + "/".join(parts) and parts[0] == "api" \
+                and parts[1] == "accounts" and parts[3] == "vendor-reset":
             self._vendor_reset(parts[2])
             return
         self._json(404, {"error": "not found"})

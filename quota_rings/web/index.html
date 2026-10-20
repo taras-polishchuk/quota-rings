@@ -177,7 +177,15 @@ const BRAND = {
 };
 const R_OUT = 100, R_IN = 74, W_OUT = 14, W_IN = 10;
 const C = r => 2 * Math.PI * r;
+// How long after a window's reset instant it still counts as "just rolled
+// over" and worth an immediate re-read. Wider than one 60s poll so a window
+// that reset between two polls is still caught.
+const RESET_GRACE_MS = 90000;
 let DATA = null, lastFetch = 0, first = true, META = null;
+// Reset instants we have already force-refreshed for. One forced re-read per
+// instant, so a window that just rolled over refreshes promptly without the
+// page spinning at the vendor. See tick().
+const forcedResets = new Set();
 const $ = s => document.querySelector(s);
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -315,18 +323,23 @@ function updateCard(el, s){
     <div class="row">
       <span class="dot ${i? 'in':''}"></span>
       <div><div class="name">${esc(w.label)}${paceTag(w)}</div>
-        <span class="meta">${Math.round(w.used)}% used · <span class="reset" data-reset="${w.reset_at||''}">↻ ${fmtLeft(w.reset_at)}</span></span></div>
+        <span class="meta">${Math.round(w.used)}% used · <span class="reset" data-reset="${esc(w.reset_at||'')}">↻ ${fmtLeft(w.reset_at)}</span></span></div>
       <div class="pct" style="color:${colorFor(w.remaining,'#fff')}">${Math.round(w.remaining)}%<small>left</small></div>
     </div>`).join('');
   el.querySelector('.extras').innerHTML = (s.extras||[]).map(x=>`<span class="chip">${esc(x)}</span>`).join('') + tierChip(s);
   el.querySelector('.resetbox').innerHTML = resetBox(s);
   el.querySelector('.errbox').innerHTML = s.ok ? '' : `<div class="err">⚠ ${esc(s.error)}</div>`;
+  // The banner is a statement about *now*, so it has to be taken back down
+  // when the account recovers. Adding it without ever removing it left a card
+  // reading "stale" over fresh numbers for the rest of the page's life.
   const staleNote = el.querySelector('.stale-note');
   if(s.stale && !staleNote){
     const d = document.createElement('div');
     d.className = 'stale-banner stale-note';
     d.textContent = 'stale reading — this account failed to refresh';
     el.querySelector('.resetbox').after(d);
+  } else if(!s.stale && staleNote){
+    staleNote.remove();
   }
 }
 
@@ -382,11 +395,37 @@ function liveFavicon(d){
 function tick(){
   if(!DATA) return;
   document.querySelectorAll('.reset').forEach(n=>{ n.textContent = '↻ '+fmtLeft(n.dataset.reset); });
-  const all = DATA.accounts.flatMap(s=>(s.windows||[]).map(w=>({w,s}))).filter(x=>x.w.reset_at).sort((a,b)=>new Date(a.w.reset_at)-new Date(b.w.reset_at));
-  if(all[0]) $('#sNext').textContent = fmtLeft(all[0].w.reset_at);
-  const ago = Math.round((Date.now()-lastFetch)/1000);
+  const now = Date.now();
+  const at = x => new Date(x.w.reset_at).getTime();
+  const all = DATA.accounts.flatMap(s=>(s.windows||[]).map(w=>({w,s}))).filter(x=>x.w.reset_at).sort((a,b)=>at(a)-at(b));
+  // "Next reset" is the next one still to come. Reading the earliest instant
+  // overall counted already-elapsed windows, which is what pinned this stat
+  // to "0m 00s" on any config whose instants had passed.
+  const next = all.find(x=>at(x) > now) || all[0];
+  if(next) $('#sNext').textContent = fmtLeft(next.w.reset_at);
+  const ago = Math.round((now-lastFetch)/1000);
   $('#foot').textContent = `updated ${ago}s ago · ${new Date(DATA.generated_at).toLocaleTimeString()}`;
-  if(all[0] && new Date(all[0].w.reset_at) < Date.now() - 5000 && ago > 20) load(true);
+  // Re-read promptly when a window has just rolled over, so a card never sits
+  // on a drained number until the next poll. Three guards keep that honest:
+  //   * only a window that reset within RESET_GRACE_MS counts -- an instant from
+  //     last week is not news, and treating it as one made this branch
+  //     permanently true;
+  //   * act once per reset instant (the latch). The forced load does not change
+  //     the instant, so without it the branch re-armed ~21s later, forever;
+  //   * `ago > 20` keeps two polls from stacking.
+  // With those, a config whose reset instants have all elapsed polls on the
+  // documented 60s and issues no ?force=1 at all.
+  const justRolled = all.find(x=>{
+    const t = at(x);
+    return t <= now && now - t < RESET_GRACE_MS && !forcedResets.has(x.w.reset_at);
+  });
+  if(justRolled && ago > 20){
+    forcedResets.add(justRolled.w.reset_at);
+    // Forget latches for instants the collector has stopped reporting, so the
+    // set cannot grow for the lifetime of the page.
+    for(const r of forcedResets) if(!all.some(x=>x.w.reset_at===r)) forcedResets.delete(r);
+    load(true);
+  }
   DATA.accounts.forEach(s=>{ const el=document.getElementById('card-'+s.id); if(!el) return;
     const ordered = (s.windows||[]).slice().sort((x,y)=>(x.window_seconds||0)-(y.window_seconds||0));
     ['o','i'].forEach((k,i)=>{ const w=ordered[i], p=w&&paceOf(w); const g=el.querySelector('.pace-'+k); if(p!=null&&g) g.style.transform=`rotate(${p*3.6}deg)`; }); });
