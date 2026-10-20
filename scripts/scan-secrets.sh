@@ -86,8 +86,25 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
   report "git history: vendor tokens and personal paths"
   history="$(git log -p --all 2>/dev/null)"
   if [ -n "$history" ]; then
-    if printf '%s\n' "$history" | grep -aE -f "$PATTERNS" >/dev/null 2>&1 \
-       || printf '%s\n' "$history" | grep -aE -f "$PERSONAL" >/dev/null 2>&1; then
+    # `git log -p` content lines carry no filename prefix, so the allowlist has
+    # to be applied per patch: track the file from each "diff --git a/x b/x"
+    # header and drop that patch when it is the scanner itself or a redaction
+    # test. Commit headers are dropped too, because the author/committer
+    # identity lives there and is reported in full by the section below --
+    # scanning it here would double-report the same address under a rule meant
+    # for file content.
+    leaked="$(
+      awk -v allow="$SELF_ALLOW" '
+        /^diff --git / { path = $0; sub(/.* b\//, "", path); skip = (path ~ allow) }
+        /^(Author|AuthorDate|Commit|CommitDate|Date): / { next }
+        !skip
+      ' <<< "$history" \
+      | { grep -aE -f "$PATTERNS" || true
+          grep -aE -f "$PERSONAL" | grep -vE 'example\.|noreply' || true; } \
+      | head -20
+    )"
+    if [ -n "$leaked" ]; then
+      printf '%s\n' "$leaked" | sed 's/^/  /'
       flag "the history contains a credential or a personal path -- do NOT publish as-is"
     else
       echo "  clean"

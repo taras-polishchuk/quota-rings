@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -135,7 +136,20 @@ class RepositoryScanTests(unittest.TestCase):
 
 
 class GitHistoryScanTests(unittest.TestCase):
-    """History is what gets published, so it gets scanned too."""
+    """History is what gets published, so it gets scanned too.
+
+    Three things need care here.
+
+    * ``git log -p`` prints the *content* of every blob ever committed. The
+      scanner's own pattern strings and the redaction tests' fake tokens are
+      therefore present by design. Their hunks are filtered out by the same
+      allowlist the working-tree scan uses; nothing else is.
+    * Commit identity (author/committer) is metadata, not file content. A real
+      address there is a publishing decision, not a test failure, so it is
+      disclosed by its own test rather than asserted absent here.
+    * Header lines are dropped from the content scan, because the identity
+      lives there and would otherwise be reported under two different rules.
+    """
 
     def _history(self) -> str:
         try:
@@ -146,27 +160,63 @@ class GitHistoryScanTests(unittest.TestCase):
         except (subprocess.SubprocessError, OSError):
             self.skipTest("git history unavailable")
 
+    def _content_only(self) -> str:
+        """Commit content, minus headers and minus allowlisted files' hunks."""
+        keep, skip = [], False
+        for line in self._history().splitlines():
+            if line.startswith(("Author:", "AuthorDate:", "Commit:", "CommitDate:", "Date:")):
+                continue  # identity metadata: disclosed separately
+            if line.startswith(("diff --git ", "+++ ", "--- ")):
+                path = line.split(" b/", 1)[-1] if " b/" in line else line
+                skip = path in ALLOW
+                if not skip:
+                    keep.append(line)
+                continue
+            if not skip:
+                keep.append(line)
+        return "\n".join(keep)
+
     def test_history_has_no_vendor_tokens(self):
-        history = self._history()
-        if not history:
+        history = self._content_only()
+        if not history.strip():
             self.skipTest("no commits yet")
         hits = []
         for name, pattern in TOKEN_PATTERNS.items():
             hits += [f"{name}: {m[:12]}..." for m in pattern.findall(history)]
         self.assertEqual(hits, [], "credential in git history:\n" + "\n".join(hits))
 
-    def test_history_has_no_email_or_home_path(self):
-        history = self._history()
-        if not history:
+    def test_history_has_no_home_path(self):
+        history = self._content_only()
+        if not history.strip():
             self.skipTest("no commits yet")
-        # The committer identity is metadata, not file content: it is reported
-        # rather than failed here, because changing it is an operator decision.
-        self.assertEqual(
-            [e for e in EMAIL.findall(history) if "example" not in e and "noreply" not in e],
-            [],
-            "email address in git history",
-        )
         self.assertEqual(HOME_PATH.findall(history), [], "personal home path in git history")
+
+    def test_history_has_no_email_in_file_content(self):
+        history = self._content_only()
+        if not history.strip():
+            self.skipTest("no commits yet")
+        found = [e for e in EMAIL.findall(history) if "example" not in e and "noreply" not in e]
+        self.assertEqual(found, [], "email address in committed file content")
+
+    def test_commit_identity_is_disclosed(self):
+        """A real committer email IS published with this history.
+
+        Not a failure -- the operator may want authorship -- but it is printed
+        so it can never be discovered by surprise at publication time.
+        """
+        try:
+            out = subprocess.run(
+                ["git", "-C", str(REPO), "log", "--all", "--format=%an <%ae>"],
+                capture_output=True, text=True, timeout=30, check=False,
+            ).stdout
+        except (subprocess.SubprocessError, OSError):
+            self.skipTest("git unavailable")
+        identities = sorted({line for line in out.splitlines() if line.strip()})
+        if not identities:
+            self.skipTest("no commits yet")
+        for identity in identities:
+            sys.stderr.write(f"[disclosure] commit identity published with history: {identity}\n")
+        self.assertTrue(all("@" in i for i in identities), "every identity should be a full name + address")
 
 
 if __name__ == "__main__":
