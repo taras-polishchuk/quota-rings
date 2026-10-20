@@ -1,0 +1,9 @@
+{
+  "name": "Quota Rings",
+  "short_name": "Quota Rings",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#07070c",
+  "theme_color": "#07070c",
+  "description": "Self-hosted dashboard of AI provider quota windows."
+}

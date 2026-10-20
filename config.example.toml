@@ -1,0 +1,158 @@
+# quota-rings configuration template.
+#
+# Copy to config.toml and edit. `config.toml` is gitignored; this template is not.
+#
+# THE ONE RULE: a credential never appears in this file. Every `token` is a
+# *reference* to a secret held somewhere else:
+#
+#   token = "env:NAME"                 read an environment variable
+#   token = "file:/run/secrets/key"    read a mounted secret file (first line)
+#   token = "command:pass show x/y"    run a command, take its stdout
+#
+# That way this file is always safe to commit, and a config leak cannot become a
+# credential leak.
+
+[server]
+host = "127.0.0.1"          # loopback by default; see "Remote access" in README
+port = 8790
+ttl_seconds = 60            # dashboard refresh interval. Re-reads only.
+timeout_seconds = 20
+
+# Vendor quota resets (redeeming a finite banked Codex reset) are off here.
+# Even with this true, the account must also set allow_vendor_reset = true.
+enable_vendor_actions = false
+
+# Set true only if you have put your own authentication in front of the port.
+allow_remote_bind = false
+
+
+# ---------------------------------------------------------------------------
+# Claude -- one [[account]] per subscription. Two accounts means two tokens,
+# which is how you watch a Max and a Pro side by side.
+#
+# The usage payload does NOT name the plan, so `plan` below is your own label.
+# Getting the plan right is your responsibility, not the vendor's.
+# ---------------------------------------------------------------------------
+
+[[account]]
+id = "claude-max"
+provider = "claude"
+label = "Claude"
+vendor = "Anthropic"
+plan = "Max"                 # operator-supplied: the API does not say "Max"
+billing = "subscription"
+price = 100                  # what you actually pay, for your own totals
+token = "env:CLAUDE_MAX_TOKEN"   # a Claude Code OAuth access token
+
+
+[[account]]
+id = "claude-pro"
+provider = "claude"
+label = "Claude"
+vendor = "Anthropic"
+plan = "Pro"
+billing = "subscription"
+price = 20
+token = "env:CLAUDE_PRO_TOKEN"
+
+
+# ---------------------------------------------------------------------------
+# OpenRouter -- the best-documented provider, and the only SUPPORTED one.
+#
+# Two different credentials with different blast radius:
+#   token            -> the inference key (sk-or-v1-...). Reads /api/v1/key.
+#   management_token -> the management key. Reads account credits.
+# They are not interchangeable. Add one [[account]] per key you want to watch.
+#
+# Note: more keys do NOT mean more capacity. Limits are governed per account.
+# ---------------------------------------------------------------------------
+
+[[account]]
+id = "openrouter-main"
+provider = "openrouter"
+label = "OpenRouter"
+vendor = "OpenRouter"
+billing = "payg"            # usage-based; not summed into the monthly total
+# price is intentionally absent: there is no subscription price to show.
+token = "env:OPENROUTER_INFERENCE_KEY"
+management_token = "env:OPENROUTER_MANAGEMENT_KEY"
+
+
+# ---------------------------------------------------------------------------
+# MiniMax -- Token Plan (M Plan) only, and only with a Subscription Key.
+# A pay-as-you-go API key has no quota meter; the card will say so.
+# ---------------------------------------------------------------------------
+
+[[account]]
+id = "minimax-token-plan"
+provider = "minimax"
+label = "MiniMax"
+vendor = "MiniMax"
+billing = "subscription"
+price = 50
+token = "env:MINIMAX_SUBSCRIPTION_KEY"
+
+
+# ---------------------------------------------------------------------------
+# Mistral -- Enterprise Admin API only.
+#
+# For an individual account this provider has NO read path: the Admin API is
+# Enterprise-only and a standard key cannot read admin endpoints. Leaving it
+# enabled produces a card that explains that, rather than a fake zero ring.
+# Set enabled = false to hide it entirely.
+# ---------------------------------------------------------------------------
+
+[[account]]
+id = "mistral-admin"
+provider = "mistral"
+label = "Mistral"
+vendor = "Mistral"
+billing = "payg"
+enabled = false
+token = "env:MISTRAL_ADMIN_API_KEY"
+[account.options]
+kind = "admin"               # "admin" | "payg" | "subscription"
+
+
+# ---------------------------------------------------------------------------
+# Codex (optional, off by default, UNSTABLE)
+#
+# Undocumented backend; a plain HTTP client can hit an edge challenge.
+# `allow_vendor_reset` is the per-account half of the switch that permits
+# redeeming a banked reset. The banked reset really does refill the windows and
+# is finite, so it stays off unless you turn it on deliberately.
+# ---------------------------------------------------------------------------
+
+[[account]]
+id = "codex"
+provider = "codex"
+label = "Codex"
+vendor = "OpenAI"
+plan = "Plus"
+billing = "subscription"
+price = 20
+enabled = false
+token = "env:CODEX_OAUTH_TOKEN"
+allow_vendor_reset = false
+[account.options]
+# account_id = "your-chatgpt-account-id"    # ChatGPT-Account-ID header
+
+
+# ---------------------------------------------------------------------------
+# GitHub Copilot (optional, off by default, UNSTABLE)
+#
+# Internal endpoint, unsupported by GitHub. The payload decides whether this
+# account is on AI-credit or legacy premium-request billing, and the card says
+# which one it read.
+# ---------------------------------------------------------------------------
+
+[[account]]
+id = "copilot"
+provider = "copilot"
+label = "Copilot"
+vendor = "GitHub"
+plan = "Pro"
+billing = "subscription"
+price = 10
+enabled = false
+token = "command:gh auth token"

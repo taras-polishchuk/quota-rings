@@ -1,0 +1,16 @@
+{
+  "copilot_plan": "individual",
+  "quota_reset_date_utc": "2026-11-01T00:00:00Z",
+  "quota_snapshots": {
+    "ai_credits": {
+      "entitlement": 1500,
+      "remaining": 320,
+      "percent_remaining": 21.3,
+      "unlimited": false,
+      "overage_count": 0
+    },
+    "chat": {
+      "unlimited": true
+    }
+  }
+}

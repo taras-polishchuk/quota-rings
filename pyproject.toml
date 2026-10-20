@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quota-rings"
+version = "1.0.0"
+description = "Self-hosted dashboard of AI provider quota windows (SVG rings, 60s refresh)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+keywords = ["quota", "usage", "dashboard", "claude", "openrouter", "minimax", "copilot", "codex"]
+classifiers = [
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: System :: Monitoring",
+]
+# No runtime dependencies on purpose: this must install on a bare WSL/Linux
+# box with nothing but CPython and the standard library.
+dependencies = []
+
+[project.scripts]
+quota-rings = "quota_rings.cli:main"
+
+[tool.setuptools]
+packages = ["quota_rings", "quota_rings.providers"]
+
+[tool.setuptools.package-data]
+quota_rings = ["web/*.html", "web/*.svg", "web/*.png", "web/*.webmanifest"]

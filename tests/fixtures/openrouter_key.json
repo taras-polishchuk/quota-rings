@@ -1,0 +1,18 @@
+{
+  "data": {
+    "label": "personal",
+    "limit": 100.0,
+    "limit_remaining": 42.5,
+    "limit_reset": "weekly",
+    "usage": 12.34,
+    "usage_daily": 1.2,
+    "usage_weekly": 12.34,
+    "usage_monthly": 12.34,
+    "effective_budget": {
+      "budget_type": "workspace",
+      "limit": 50.0,
+      "reset_period": "weekly"
+    },
+    "is_free_tier": false
+  }
+}
